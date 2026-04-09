@@ -127,7 +127,7 @@ if check_password():
         with c_inf_m1:
             st.metric(f"Income Total ({budget_ref})", f"{h_inc:,.2f}")
         with c_inf_m2:
-            st.metric(f"Pax Total ({budget_ref})", f"{h_pax:,.2f}")
+            st.metric(f"Pax Total ({budget_ref})", f"{h_pax:,.0f}")
 
         st.markdown("---")
 
@@ -187,9 +187,9 @@ if check_password():
         base_inc_t, base_pax_t = df_base['income'].sum(), df_base['pax'].sum()
         proj_inc_t, proj_pax_t = df_proyectado['income'].sum(), df_proyectado['pax'].sum()
         t1.metric("Income Base (Total)", f"{base_inc_t:,.2f}");
-        t2.metric("Pax Base (Total)", f"{base_pax_t:,.2f}")
+        t2.metric("Pax Base (Total)", f"{base_pax_t:,.0f}")
         t3.metric("Total Proyectado", f"{proj_inc_t:,.2f}", delta=f"{proj_inc_t - base_inc_t:,.2f}")
-        t4.metric("Total Proyectado", f"{proj_pax_t:,.2f}", delta=f"{proj_pax_t - base_pax_t:,.2f}")
+        t4.metric("Total Proyectado", f"{proj_pax_t:,.0f}", delta=f"{proj_pax_t - base_pax_t:,.2f}")
 
         st.subheader(f"🔍 Proyección de Selección Actual")
         s1, s2, s3, s4 = st.columns(4)
@@ -197,9 +197,9 @@ if check_password():
         proj_inc_s, proj_pax_s = df_proyectado.loc[idx_actual, 'income'].sum(), df_proyectado.loc[
             idx_actual, 'pax'].sum()
         s1.metric("Income Base (Filtro)", f"{base_inc_s:,.2f}");
-        s2.metric("Pax Base (Filtro)", f"{base_pax_s:,.2f}")
+        s2.metric("Pax Base (Filtro)", f"{base_pax_s:,.0f}")
         s3.metric("Income Proyectado", f"{proj_inc_s:,.2f}", delta=f"{proj_inc_s - base_inc_s:,.2f}")
-        s4.metric("Pax Proyectado", f"{proj_pax_s:,.2f}", delta=f"{proj_pax_s - base_pax_s:,.2f}")
+        s4.metric("Pax Proyectado", f"{proj_pax_s:,.0f}", delta=f"{proj_pax_s - base_pax_s:,.2f}")
 
         st.sidebar.markdown("---")
         if st.sidebar.button("➕ AGREGAR MÉTRICA", use_container_width=True):
