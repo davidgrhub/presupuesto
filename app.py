@@ -58,7 +58,7 @@ if check_password():
         st.session_state.version_filtros = 0
 
 
-    # Funciones auxiliares (conectar_db, get_budget_year_logic, etc.)
+    # Funciones auxiliares
     def conectar_db():
         return create_engine(
             f"mysql+pymysql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}")
@@ -92,14 +92,33 @@ if check_password():
 
 
     @st.cache_data
-    def consultar_totales_historicos(_engine, target_by):
+    def consultar_totales_historicos(_engine, target_by, filtros):
+        # Base de la consulta filtrando por el año fiscal solicitado
         query = f"""
         SELECT SUM(income) as total_inc, SUM(pax) as total_px FROM data 
-        WHERE (year = {target_by - 1} AND month IN ('October', 'November', 'December'))
-           OR (year = {target_by} AND month NOT IN ('October', 'November', 'December'))
+        WHERE ((year = {target_by - 1} AND month IN ('October', 'November', 'December'))
+           OR (year = {target_by} AND month NOT IN ('October', 'November', 'December')))
         """
+
+        # Mapeo de filtros de la UI a columnas de la base de datos
+        mapeo_filtros = {
+            'agency': filtros.get('agency'),
+            'service': filtros.get('service'),
+            'delegation': filtros.get('delegation'),
+            'month': filtros.get('month')
+        }
+
+        # Construcción dinámica del WHERE para los filtros seleccionados
+        for columna, valores in mapeo_filtros.items():
+            if valores:
+                valores_sql = "', '".join([str(v).replace("'", "''") for v in valores])
+                query += f" AND {columna} IN ('{valores_sql}')"
+
         res = pd.read_sql(query, _engine).iloc[0]
-        return res['total_inc'], res['total_px']
+        # Manejo de nulos si el filtro no devuelve nada
+        inc = res['total_inc'] if res['total_inc'] is not None else 0.0
+        px = res['total_px'] if res['total_px'] is not None else 0.0
+        return inc, px
 
 
     try:
@@ -107,32 +126,14 @@ if check_password():
         target_by = obtener_max_budget_year(engine)
         df_base = cargar_solo_budget_actual(engine, target_by)
 
-        # --- BOTÓN DE LOGOUT (Opcional en la barra lateral) ---
+        # --- BARRA LATERAL (FILTROS) ---
+        v = st.session_state.version_filtros
+        st.sidebar.header(f"🛠️ Configurar Budget {target_by}")
+
         if st.sidebar.button("Cerrar Sesión"):
             del st.session_state["password_correct"]
             st.rerun()
 
-        # --- HEADER ---
-        st.title(f"🚀 Simulador de Presupuesto Fiscal {target_by}")
-
-        # [AQUÍ VA TODO EL RESTO DE TU CÓDIGO ORIGINAL SIN CAMBIOS]
-        # Línea divisoria, Bloque histórico, Filtros Multiselección, Procesamiento, Métricas, etc.
-
-        st.markdown("---")
-        st.subheader("📋 Referencia")
-        c_inf_select, c_spacer, c_inf_m1, c_inf_m2 = st.columns([2, 1, 1.5, 1.5])
-        with c_inf_select:
-            budget_ref = st.selectbox("🔎 Seleccionar Año:", range(target_by - 1, target_by - 5, -1), index=0)
-        h_inc, h_pax = consultar_totales_historicos(engine, budget_ref)
-        with c_inf_m1:
-            st.metric(f"Income Total ({budget_ref})", f"{h_inc:,.2f}")
-        with c_inf_m2:
-            st.metric(f"Pax Total ({budget_ref})", f"{h_pax:,.0f}")
-
-        st.markdown("---")
-
-        v = st.session_state.version_filtros
-        st.sidebar.header(f"🛠️ Configurar Budget {target_by}")
         desc_ajuste = st.sidebar.text_input("📝 Descripción del ajuste:", placeholder="Ej: Incremento Temporada Alta",
                                             key=f"desc_{v}")
         f_agency = st.sidebar.multiselect("Agencia", sorted(df_base['agency'].unique().tolist()), key=f"ag_{v}")
@@ -141,13 +142,43 @@ if check_password():
                                               key=f"del_{v}")
         f_year = st.sidebar.multiselect("Año", sorted(df_base['year'].unique().tolist()), key=f"ye_{v}")
         f_month = st.sidebar.multiselect("Mes", sorted(df_base['month'].unique().tolist()), key=f"mo_{v}")
+
         st.sidebar.markdown("---")
         t_inc_inc = st.sidebar.selectbox("Tipo Income", ["Porcentaje", "Numérico"], key=f"ti_{v}")
         v_inc_inc = st.sidebar.number_input("Valor Income", value=0.0, step=0.1, key=f"vi_{v}")
         t_inc_pax = st.sidebar.selectbox("Tipo Pax", ["Porcentaje", "Numérico"], key=f"tp_{v}")
         v_inc_pax = st.sidebar.number_input("Valor Pax", value=0.0, step=0.1, key=f"vp_{v}")
 
+        # --- HEADER PRINCIPAL ---
+        st.title(f"🚀 Simulador de Presupuesto Fiscal {target_by}")
 
+        # --- SECCIÓN DE REFERENCIA (Actualizada con filtros) ---
+        st.markdown("---")
+        st.subheader("📋 Referencia Histórica Filtrada")
+        c_inf_select, c_spacer, c_inf_m1, c_inf_m2 = st.columns([2, 1, 1.5, 1.5])
+
+        with c_inf_select:
+            budget_ref = st.selectbox("🔎 Seleccionar Año de Referencia:", range(target_by - 1, target_by - 5, -1),
+                                      index=0)
+
+        # Diccionario de filtros para la consulta histórica
+        filtros_para_consulta = {
+            "agency": f_agency,
+            "service": f_service,
+            "delegation": f_delegation,
+            "month": f_month
+        }
+
+        h_inc, h_pax = consultar_totales_historicos(engine, budget_ref, filtros_para_consulta)
+
+        with c_inf_m1:
+            st.metric(f"Income ({budget_ref})", f"{h_inc:,.2f}")
+        with c_inf_m2:
+            st.metric(f"Pax ({budget_ref})", f"{h_pax:,.0f}")
+        st.markdown("---")
+
+
+        # --- LÓGICA DE PROYECCIÓN ---
         def filtrar_dataframe(df, filtros):
             df_temp = df.copy()
             for col, values in filtros.items():
@@ -173,20 +204,23 @@ if check_password():
         df_proyectado = df_acumulado.copy()
         df_target_actual = filtrar_dataframe(df_proyectado, filtros_actuales)
         idx_actual = df_target_actual.index
+
         if t_inc_inc == "Porcentaje":
             df_proyectado.loc[idx_actual, 'income'] *= (1 + v_inc_inc / 100)
         else:
             df_proyectado.loc[idx_actual, 'income'] += v_inc_inc
+
         if t_inc_pax == "Porcentaje":
             df_proyectado.loc[idx_actual, 'pax'] *= (1 + v_inc_pax / 100)
         else:
             df_proyectado.loc[idx_actual, 'pax'] += v_inc_pax
 
+        # --- MÉTRICAS DE IMPACTO ---
         st.subheader("📊 Impacto en Presupuesto Total")
         t1, t2, t3, t4 = st.columns(4)
         base_inc_t, base_pax_t = df_base['income'].sum(), df_base['pax'].sum()
         proj_inc_t, proj_pax_t = df_proyectado['income'].sum(), df_proyectado['pax'].sum()
-        t1.metric("Income Base (Total)", f"{base_inc_t:,.2f}");
+        t1.metric("Income Base (Total)", f"{base_inc_t:,.2f}")
         t2.metric("Pax Base (Total)", f"{base_pax_t:,.0f}")
         t3.metric("Total Proyectado", f"{proj_inc_t:,.2f}", delta=f"{proj_inc_t - base_inc_t:,.2f}")
         t4.metric("Total Proyectado", f"{proj_pax_t:,.0f}", delta=f"{proj_pax_t - base_pax_t:,.2f}")
@@ -196,11 +230,12 @@ if check_password():
         base_inc_s, base_pax_s = df_base.loc[idx_actual, 'income'].sum(), df_base.loc[idx_actual, 'pax'].sum()
         proj_inc_s, proj_pax_s = df_proyectado.loc[idx_actual, 'income'].sum(), df_proyectado.loc[
             idx_actual, 'pax'].sum()
-        s1.metric("Income Base (Filtro)", f"{base_inc_s:,.2f}");
+        s1.metric("Income Base (Filtro)", f"{base_inc_s:,.2f}")
         s2.metric("Pax Base (Filtro)", f"{base_pax_s:,.0f}")
         s3.metric("Income Proyectado", f"{proj_inc_s:,.2f}", delta=f"{proj_inc_s - base_inc_s:,.2f}")
         s4.metric("Pax Proyectado", f"{proj_pax_s:,.0f}", delta=f"{proj_pax_s - base_pax_s:,.2f}")
 
+        # --- BOTÓN AGREGAR ---
         st.sidebar.markdown("---")
         if st.sidebar.button("➕ AGREGAR MÉTRICA", use_container_width=True):
             nombre_final = desc_ajuste if desc_ajuste.strip() != "" else f"Ajuste #{len(st.session_state.historial_ajustes) + 1}"
@@ -210,14 +245,15 @@ if check_password():
             st.session_state.version_filtros += 1
             st.rerun()
 
+        # --- HISTORIAL Y EXPORTACIÓN ---
         st.markdown("---")
         col_hist_t, col_hist_b1, col_hist_b2 = st.columns([3, 1, 1], vertical_alignment="bottom")
         with col_hist_t:
             st.subheader("📜 Historial de Ajustes")
         with col_hist_b1:
             if st.button("🗑️ Borrar Métricas", use_container_width=True):
-                st.session_state.historial_ajustes = [];
-                st.session_state.version_filtros += 1;
+                st.session_state.historial_ajustes = []
+                st.session_state.version_filtros += 1
                 st.rerun()
         with col_hist_b2:
             df_export = df_base.copy()
@@ -245,7 +281,7 @@ if check_password():
                         st.write(" | ".join(detalles) if detalles else "Aplicado a: Toda la tabla")
                     with col_del:
                         if st.button("Eliminar", key=f"del_{i}", use_container_width=True):
-                            st.session_state.historial_ajustes.pop(i);
+                            st.session_state.historial_ajustes.pop(i)
                             st.rerun()
 
     except Exception as e:
